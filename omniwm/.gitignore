@@ -1,0 +1,3 @@
+# OmniWM writes these next to settings.toml on schema upgrades / recovery.
+settings.toml.pre-v3*
+settings.toml.corrupt*

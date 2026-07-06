@@ -13,7 +13,8 @@ GREY=0xff939ab7
 TRANSPARENT=0x00000000
 
 # General bar colors
-BAR_COLOR=0xcc24273a #$GREY # Grey bar
+# Solid black so the notch blends into the bar and disappears on notched MacBooks.
+BAR_COLOR=0xff000000
 ICON_COLOR=$WHITE # Color of all icons
 LABEL_COLOR=$WHITE # Color of all labels
 

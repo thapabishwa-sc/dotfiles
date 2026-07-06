@@ -11,7 +11,7 @@ for sid in $(aerospace list-workspaces --all); do
         background.drawing=off \
         label.font.size=14.0 \
         label="$sid" \
-        click_script="aerospace workspace $sid" \
-        script="/Users/omerxx/dotfiles/sketchybar/plugins/aerospacer.sh $sid"
+        click_script="/opt/homebrew/bin/aerospace workspace $sid" \
+        script="/Users/bishwa/dotfiles/sketchybar/plugins/aerospacer.sh $sid"
 done
 
