@@ -1,0 +1,161 @@
+#!/usr/bin/env sh
+# yabai config — ported from aerospace/aerospace.toml
+# Docs: https://github.com/koekeishiya/yabai/wiki
+#
+# Modifier scheme (in skhd/skhdrc, since yabai has no hotkey daemon of its own):
+#   alt              -> focus / navigate
+#   alt-shift        -> move the focused window
+#   alt-shift+arrows -> set split insertion point (build splits)
+#   alt-ctrl         -> monitor operations
+#   number row       -> spaces (macOS Spaces, NOT aerospace virtual workspaces)
+#   modes            -> resize / service (skhd sub-keymaps)
+#
+# ─────────────────────────────────────────────────────────────────────────────
+# SCRIPTING ADDITION  (the SIP tradeoff — read this)
+# ─────────────────────────────────────────────────────────────────────────────
+# Everything tagged "[SA]" below only works after you partially disable SIP and
+# load the scripting addition. Without it yabai can ONLY tile windows inside the
+# native Space you're already on — no space focus, no move-window-to-space, no
+# per-app space assignment. That's the big difference vs aerospace.
+#
+# To enable (one time):
+#   1. Reboot into Recovery (hold power on Apple Silicon) -> Terminal:
+#        csrutil enable --without fs --without debug --without nvram
+#      (Apple Silicon also needs: in recovery, enable non-Apple kernel exts.)
+#   2. Reboot, then add the passwordless sudoers entry yabai prints via:
+#        sudo visudo -f /private/etc/sudoers.d/yabai
+#      (see `yabai --version` + wiki "Disabling SIP" for the exact line)
+#   3. Flip SA_ENABLED below to "yes". That loads the addition at startup and
+#      turns on every space-management feature.
+#
+# ░░ THE ONE SWITCH ░░  Leave "no" for a pure in-space tiler with zero errors.
+#                       Set "yes" only AFTER the SIP + sudoers steps above.
+SA_ENABLED="yes"
+
+if [ "$SA_ENABLED" = "yes" ]; then
+  yabai -m signal --add event=dock_did_restart action="sudo yabai --load-sa"
+  sudo yabai --load-sa
+fi
+
+# ─────────────────────────────────────────────────────────────────────────────
+# LAYOUT  (aerospace: default-root-container-layout = 'tiles')
+# ─────────────────────────────────────────────────────────────────────────────
+yabai -m config layout                      bsp
+# aerospace default-root-container-orientation 'auto' ≈ yabai auto split axis:
+yabai -m config split_type                   auto
+yabai -m config window_placement             second_child   # new window opens below / to the right of the focused one
+yabai -m config auto_balance                 off
+yabai -m config split_ratio                  0.50           # equal 50/50 splits
+
+# ─────────────────────────────────────────────────────────────────────────────
+# GAPS  (aerospace [gaps]: inner 10, outer L/R 20, T/B 10)
+# NOTE: aerospace gave the MAIN monitor 0 gaps and externals these values.
+#       yabai gaps are global; per-display 0-gap needs a display_changed signal
+#       script (see scripts/ note at bottom). These match the EXTERNAL values.
+# ─────────────────────────────────────────────────────────────────────────────
+yabai -m config window_gap                   10
+yabai -m config top_padding                  10
+yabai -m config bottom_padding               10
+yabai -m config left_padding                 20
+yabai -m config right_padding                20
+
+# ─────────────────────────────────────────────────────────────────────────────
+# FOCUS / MOUSE  (aerospace: on-focused-monitor-changed move-mouse center)
+# ─────────────────────────────────────────────────────────────────────────────
+yabai -m config mouse_follows_focus          on
+yabai -m config focus_follows_mouse          off
+yabai -m config mouse_modifier               alt
+yabai -m config mouse_action1                move      # alt + left-drag  = move
+yabai -m config mouse_action2                resize    # alt + right-drag = resize
+yabai -m config mouse_drop_action            swap
+
+# Window appearance
+yabai -m config window_shadow                on
+yabai -m config window_animation_duration    0.2   # smooth move/resize animations (GPU-smooth now that the SA is loaded; 0.0 = instant)
+
+# Reserve the top strip for the sketchybar on ALL displays (the bar shows on both).
+# Using external_bar rather than per-space top_padding is important: padding stacks
+# on top of the area yabai already leaves below the menu bar, producing a huge gap.
+# external_bar measures from the true screen top, so windows sit right under the bar
+# on every display (this also clears the MacBook's notch on ws9-10).
+yabai -m config external_bar all:36:0
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SPACES + GAPS  [SA]  — lives in layout.sh (see there for the full logic).
+# Kept OUT of yabairc so the display_added / display_removed signals can re-run
+# just the layout on dock/undock WITHOUT re-executing this file — which would
+# re-`signal --add` everything and leave duplicate signals that make sketchybar
+# fire multiple times per event (flicker / "buggy"). yabairc runs once at
+# service start; layout.sh runs on every display change.
+# ─────────────────────────────────────────────────────────────────────────────
+[ "$SA_ENABLED" = "yes" ] && "$HOME"/.config/yabai/layout.sh
+
+# ─────────────────────────────────────────────────────────────────────────────
+# WINDOW RULES  (aerospace [[on-window-detected]])
+# float = aerospace `layout floating`; space = aerospace `move-node-to-workspace`.
+# Space assignment is [SA]-dependent.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Always-float apps (aerospace app-id systempreferences + the regex list).
+yabai -m rule --add app="^System Settings$"   manage=off
+yabai -m rule --add app="^System Preferences$" manage=off
+yabai -m rule --add app="^Shottr$"             manage=off
+yabai -m rule --add app="^Finder$"             manage=off
+yabai -m rule --add app="^Safari$"             manage=off
+yabai -m rule --add app="^Camera$"             manage=off
+yabai -m rule --add app="^FortiClient$"        manage=off
+yabai -m rule --add app="^Discord$"            manage=off
+yabai -m rule --add app="^Mail$"               manage=off
+yabai -m rule --add app="^Trello$"             manage=off
+yabai -m rule --add app="^QuickTime Player$"   manage=off
+yabai -m rule --add app="^iTerm2?$"            manage=off
+yabai -m rule --add app="^Docker Desktop$"     manage=off
+
+# Auto-assign apps to spaces (aerospace move-node-to-workspace by app-id).  [SA]
+# Gated: without the scripting addition the ws* labels don't exist, so these
+# would spam "not a valid option for SPACE_SEL". Flip SA_ENABLED to turn on.
+if [ "$SA_ENABLED" = "yes" ]; then
+  yabai -m rule --add app="^Vivaldi$"       space=ws1
+  yabai -m rule --add app="^Google Chrome$" space=ws1
+  yabai -m rule --add app="^Brave Browser$" space=ws1
+  yabai -m rule --add app="^GitKraken$"     space=ws2
+  yabai -m rule --add app="^Code$"          space=ws3
+  yabai -m rule --add app="^Zed$"           space=ws3
+  yabai -m rule --add app="^OpenLens$"      space=ws4
+  yabai -m rule --add app="^Lens$"          space=ws4
+  yabai -m rule --add app="^Freelens$"      space=ws4
+  yabai -m rule --add app="^Bitwarden$"     space=ws5
+  yabai -m rule --add app="^(zoom\.us|Zoom)$" space=ws9
+  yabai -m rule --add app="^Slack$"         space=ws10
+fi
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SIGNALS — keep newly-managed/floated windows behaving like aerospace defaults.
+# ─────────────────────────────────────────────────────────────────────────────
+# Re-apply rules when displays change (e.g. plugging in the external monitor).
+yabai -m signal --add event=display_added   action="sleep 1 && '$HOME'/.config/yabai/layout.sh && /opt/homebrew/bin/sketchybar --reload"
+yabai -m signal --add event=display_removed action="sleep 1 && '$HOME'/.config/yabai/layout.sh && /opt/homebrew/bin/sketchybar --reload"
+
+# Drive the sketchybar space indicators — event-based, reliable with the SA.
+# (sketchybar --trigger is a harmless no-op if sketchybar isn't running.)
+# Absolute sketchybar path: yabai runs as a launchd service with a minimal PATH
+# that omits /opt/homebrew/bin, so a bare `sketchybar` here silently no-ops.
+yabai -m signal --add event=space_changed   action="/opt/homebrew/bin/sketchybar --trigger yabai_space"
+yabai -m signal --add event=display_changed action="/opt/homebrew/bin/sketchybar --trigger yabai_space"
+
+# Refresh each workspace's app-icon list when windows are added/removed/moved.
+# window_created is delayed slightly so float rules (e.g. iTerm) apply *before*
+# we recompute — otherwise a brand-new floating window flashes in as tiled.
+yabai -m signal --add event=window_created   action="sleep 0.3 && /opt/homebrew/bin/sketchybar --trigger windows_on_spaces"
+yabai -m signal --add event=window_destroyed action="/opt/homebrew/bin/sketchybar --trigger windows_on_spaces"
+yabai -m signal --add event=window_moved     action="/opt/homebrew/bin/sketchybar --trigger windows_on_spaces"
+# Also recompute when apps hide/unhide (⌘H) or minimize — a hidden floating
+# window otherwise leaks its icon onto every space.
+yabai -m signal --add event=application_hidden  action="/opt/homebrew/bin/sketchybar --trigger windows_on_spaces"
+yabai -m signal --add event=application_visible action="/opt/homebrew/bin/sketchybar --trigger windows_on_spaces"
+yabai -m signal --add event=window_minimized    action="/opt/homebrew/bin/sketchybar --trigger windows_on_spaces"
+yabai -m signal --add event=window_deminimized  action="/opt/homebrew/bin/sketchybar --trigger windows_on_spaces"
+# Update the current-workspace stack highlight when focus moves between windows.
+yabai -m signal --add event=window_focused      action="/opt/homebrew/bin/sketchybar --trigger window_focus"
+
+echo "yabai configuration loaded"

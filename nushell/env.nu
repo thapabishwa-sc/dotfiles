@@ -108,7 +108,8 @@ zoxide init nushell | save -f ~/.zoxide.nu
 mkdir ~/.cache/mise
 ^mise activate nu | save -f ~/.cache/mise/init.nu
 
-$env.STARSHIP_CONFIG = "/Users/omerxx/.config/starship/starship.toml"
+$env.STARSHIP_CONFIG = /Users/bishwa/.config/starship/starship.toml
+$env.NIX_CONF_DIR = /Users/bishwa/.config/nix
 $env.CARAPACE_BRIDGES = 'zsh,fish,bash,inshellisense' # optional
 mkdir ~/.cache/carapace
 carapace _carapace nushell | save --force ~/.cache/carapace/init.nu

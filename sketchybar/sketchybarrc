@@ -1,5 +1,10 @@
 #!/usr/bin/env sh
 
+# brew services (launchd) starts sketchybar with a minimal PATH that omits
+# /opt/homebrew/bin, so plugins calling `yabai` would silently find nothing and
+# the space items never get added. Put Homebrew on PATH for all sourced scripts.
+export PATH="/opt/homebrew/bin:$PATH"
+
 source "$HOME/.config/sketchybar/colors.sh" # Loads all defined colors
 source "$HOME/.config/sketchybar/icons.sh" # Loads all defined icons
 
@@ -17,17 +22,18 @@ POPUP_CORNER_RADIUS=11
 SHADOW=on
 
 # Setting up the general bar appearance and default values
-sketchybar --bar     height=50                                         \
+sketchybar --bar     height=32                                         \
                      color=$BAR_COLOR                                  \
                      shadow=$SHADOW                                    \
-                     position=right                                     \
+                     position=top                                       \
+                     display=all                                       \
                      sticky=on                                         \
-                     padding_right=18                                  \
-                     padding_left=18                                   \
-                     corner_radius=9                                   \
-                     y_offset=10                                       \
-                     margin=10                                         \
-                     blur_radius=20                                    \
+                     padding_right=10                                  \
+                     padding_left=10                                   \
+                     y_offset=0                                       \
+                     margin=0                                         \
+                     blur_radius=0                                     \
+                     topmost=window                                    \
                                                                        \
            --default updates=when_shown                                \
                      icon.font="$FONT:Bold:14.0"                       \
@@ -47,14 +53,19 @@ sketchybar --bar     height=50                                         \
                      popup.background.shadow.drawing=$SHADOW
 
 # Left
-source "$ITEM_DIR/apple.sh"
-source "$ITEM_DIR/spaces.sh"
+# source "$ITEM_DIR/apple.sh"
+source "$ITEM_DIR/spaces.sh"       # workspace numbers 1..N (navigation)
+source "$ITEM_DIR/stack.sh"        # current workspace's window icons (focused highlighted)
 
 # Center
+source "$ITEM_DIR/front_app.sh"    # focused app name (driven by Hammerspoon)
 # source "$ITEM_DIR/spotify.sh"
 
-# Right
-source "$ITEM_DIR/calendar.sh"
+# Right (first sourced sits furthest right)
+source $ITEM_DIR/calendar.sh
+source $ITEM_DIR/battery.sh
+source $ITEM_DIR/volume.sh
+source $ITEM_DIR/cpu.sh
 
 ############## FINALIZING THE SETUP ##############
 sketchybar --update

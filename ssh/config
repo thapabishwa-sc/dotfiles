@@ -1,0 +1,15 @@
+# ~/.ssh/config — modular SSH configuration entry point.
+#
+# Host definitions live in per-file drop-ins under ~/.ssh/config.d/*.conf,
+# pulled in by the Include below. Add a new *.conf there rather than editing
+# this file, so hosts stay grouped and this entry point stays minimal.
+#
+# Include is first on purpose: SSH uses the FIRST matching value for each key,
+# so drop-in entries take precedence over anything added after this line.
+#
+# Put machine-local / private host entries in ~/.ssh/config.d/*.conf. That dir is
+# NOT tracked by this dotfiles repo (stow links only this file to ~/.ssh/config),
+# so those entries survive `git pull` / `git reset --hard` across machines and are
+# never clobbered by the repo — while still taking precedence via the rule above.
+
+Include ~/.ssh/config.d/*.conf

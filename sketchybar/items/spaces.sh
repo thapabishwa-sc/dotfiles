@@ -1,35 +1,35 @@
-#!/usr/bin/env sh
+#!/usr/bin/env bash
 
-sketchybar --add event aerospace_workspace_change
-RED=0xffed8796
-for sid in $(aerospace list-workspaces --all); do
-    sketchybar --add item "space.$sid" left \
-        --subscribe "space.$sid" aerospace_workspace_change \
-        --set "space.$sid" \
-        icon="$sid"\
-                              icon.padding_left=22                          \
-                              icon.padding_right=22                         \
-                              label.padding_right=33                        \
-                              icon.highlight_color=$RED                     \
-                              background.color=0x44ffffff \
-                              background.corner_radius=5 \
-                              background.height=30 \
-                              background.drawing=off                         \
-                              label.font="sketchybar-app-font:Regular:16.0" \
-                              label.background.height=30                    \
-                              label.background.drawing=on                   \
-                              label.background.color=0xff494d64             \
-                              label.background.corner_radius=9              \
-                              label.drawing=off                             \
-        click_script="aerospace workspace $sid" \
-        script="$CONFIG_DIR/plugins/aerospacer.sh $sid"
+# yabai-driven workspace numbers (1..N), focused one highlighted. Navigation
+# only — the current workspace's window icons are shown by the stack row
+# (items/stack.sh). Driven by yabai_space (space_changed signal).
+
+sketchybar --add event yabai_space
+
+# Wait for yabai to be queryable — if this reload was chained right after
+# `yabai --restart-service`, yabai's socket may not be up yet and the query
+# returns empty, leaving the bar with no spaces. Retry briefly.
+spaces=""
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  spaces=$(yabai -m query --spaces 2>/dev/null | grep -o '"index":[0-9]*' | grep -o '[0-9]*')
+  [ -n "$spaces" ] && break
+  sleep 0.3
 done
 
-sketchybar   --add item       separator left                          \
-             --set separator  icon=                                  \
-                              icon.font="Hack Nerd Font:Regular:16.0" \
-                              background.padding_left=15              \
-                              background.padding_right=15             \
-                              label.drawing=off                       \
-                              associated_display=active               \
-                              icon.color=$WHITE
+for sid in $spaces; do
+  sketchybar --add item space.$sid left                                   \
+             --subscribe space.$sid yabai_space                           \
+             --set space.$sid                                             \
+                   icon="$sid"                                            \
+                   icon.color=$WHITE                                      \
+                   icon.highlight_color=$RED                              \
+                   icon.padding_left=8                                    \
+                   icon.padding_right=8                                   \
+                   label.drawing=off                                      \
+                   background.color=0x44ffffff                            \
+                   background.corner_radius=5                             \
+                   background.height=24                                   \
+                   background.drawing=off                                 \
+                   click_script="yabai -m space --focus $sid 2>/dev/null" \
+                   script="$PLUGIN_DIR/space.sh $sid"
+done

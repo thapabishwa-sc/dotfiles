@@ -1,0 +1,12 @@
+shell: zsh
+prompt:
+  disable: true
+  zsh_use_rps1: true
+hooks:
+  start_ctx: >
+        export HISTFILE=~/.zsh_history;
+        echo -en "\033]1; `kubie info ctx`\007";
+        export KUBE_PS1_ENABLED=on
+  stop_ctx: >
+        echo -en "\033]1; $SHELL \007";
+        unset KUBE_PS1_ENABLED
