@@ -313,8 +313,9 @@ theme "catppuccin-mocha"
 
 // The folder in which Zellij will look for layouts
 //
-// layout_dir "/Users/omerhamerman/dotfiles/zellij/layouts"
+// layout_dir "~/.config/zellij/layouts"
 
 // The folder in which Zellij will look for themes
 //
-theme_dir "/Users/bishwa/dotfiles/zellij/themes"
+// theme_dir left unset on purpose: zellij auto-loads themes from its own config
+// dir (~/.config/zellij/themes), which stow already links — no absolute path needed.

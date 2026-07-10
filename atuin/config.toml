@@ -87,7 +87,7 @@ style = "compact"
 
 ## enable or disable showing a preview of the selected command
 ## useful when the command is longer than the terminal width and is cut off
-# show_preview = true
+show_preview = false
 
 ## what to do when the escape key is pressed when searching
 ## possible values: return-original, return-query
@@ -148,7 +148,7 @@ style = "compact"
 show_help = false
 
 ## Configure whether or not to show tabs for search and inspect
-# show_tabs = true
+show_tabs = false
 
 ## Configure whether or not the tabs row may be auto-hidden, which includes the current Atuin
 ## tab, such as Search or Inspector, and other tabs you may wish to see. This will
@@ -311,7 +311,10 @@ records = true
 ## The list of enabled filter modes, in order of priority.
 ## The "workspace" mode is skipped when not in a workspace or workspaces = false.
 ## Default filter mode can be overridden with the filter_mode setting.
-# filters = [ "global", "host", "session", "session-preload", "workspace", "directory" ]
+## Locked to session only — global/host/directory removed so ctrl+r never leaves
+## the current session's history. (session-preload = this session + history that
+## existed when it started; swap for "session" if you want ONLY new commands.)
+filters = ["session-preload"]
 
 [tmux]
 ## Enable using atuin with tmux popup (requires tmux >= 3.2)

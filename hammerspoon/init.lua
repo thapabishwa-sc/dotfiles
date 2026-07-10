@@ -33,11 +33,14 @@ hs.hotkey.bind({"alt"}, "R", function()
 end)
 hs.alert.show("Config loaded")
 
-local calendar = hs.loadSpoon("GoMaCal")
-if calendar then
-    calendar:setCalendarPath('/Users/bishwa/dotfiles/hammerspoon/calendar-app/calapp')
-    calendar:start()
-end
+-- GoMaCal calendar integration disabled: the 'calapp' binary it points at was
+-- never in this repo, so the path resolved to nothing. Re-enable with your own
+-- calapp build and a $HOME-relative path (os.getenv("HOME") .. "/...") if wanted.
+-- local calendar = hs.loadSpoon("GoMaCal")
+-- if calendar then
+--     calendar:setCalendarPath(os.getenv("HOME") .. "/.config/hammerspoon/calendar-app/calapp")
+--     calendar:start()
+-- end
 
 
 

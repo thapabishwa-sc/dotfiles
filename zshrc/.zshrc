@@ -13,7 +13,7 @@ export LC_ALL=en_US.UTF-8
 setopt prompt_subst
 zstyle ':completion:*' matcher-list 'm:{a-z}={A-Za-z}'
 # Docker CLI completions (fpath must be set before compinit)
-fpath=(/Users/bishwa/.docker/completions $fpath)
+fpath=($HOME/.docker/completions $fpath)
 # compinit + bashcompinit run in _deferred_init (after the first prompt) — you
 # don't tab-complete in the first few ms, so the completion system can wait.
 
@@ -36,10 +36,17 @@ _evalcache() {
 # Keybindings  (autosuggest keys are bound in _deferred_init once it's sourced)
 # ─────────────────────────────────────────────────────────────────────────────
 ZSH_AUTOSUGGEST="/opt/homebrew/share/zsh-autosuggestions/zsh-autosuggestions.zsh"
-bindkey '^L' vi-forward-word
-bindkey '^k' up-line-or-search
-bindkey '^j' down-line-or-search
-bindkey jj vi-cmd-mode          # VI mode
+bindkey -e                      # default emacs keymap; otherwise zsh infers vi mode from $EDITOR=nvim
+
+# Option+←/→ word jump. iTerm2 (with "Treat ⌥ as Alt for special keys like
+# arrows" on) sends CSI-modifier sequences; bind them so words jump instead of
+# leaking "[C"/"[D". The ^[b / ^[f fallbacks cover Option-key = "Esc+".
+bindkey '^[[1;3D' backward-word   # ⌥←
+bindkey '^[[1;3C' forward-word    # ⌥→
+bindkey '^[[1;9D' backward-word   # ⌥← (alt reporting variant)
+bindkey '^[[1;9C' forward-word    # ⌥→ (alt reporting variant)
+bindkey '^[b'     backward-word   # ⌥← when Left Option = Esc+
+bindkey '^[f'     forward-word    # ⌥→ when Right Option = Esc+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # History
@@ -75,7 +82,7 @@ export EDITOR=/opt/homebrew/bin/nvim
 export GPG_TTY=$(tty)
 # Don't clobber kubie's isolated KUBECONFIG when a kubie shell re-sources .zshrc.
 export KUBECONFIG="${KUBECONFIG:-$HOME/.kube/config}"
-export XDG_CONFIG_HOME="/Users/bishwa/.config"
+export XDG_CONFIG_HOME="$HOME/.config"
 export GOPATH="$HOME/go"
 export GOBIN="$GOPATH/bin"
 export NIX_CONF_DIR="$HOME/.config/nix"
@@ -158,7 +165,7 @@ alias lt="eza --tree --level=2 --long --icons --git"
 alias ltree="eza --tree --level=2  --icons --git"
 
 # Editors / misc
-alias v="/Users/bishwa/.nix-profile/bin/nvim"
+alias v="$HOME/.nix-profile/bin/nvim"
 alias http="xh"                 # HTTP requests with xh
 alias nm="nmap -sC -sV -oN nmap"
 alias darkman="dark-mode toggle; nightlight toggle"
@@ -231,3 +238,14 @@ add-zsh-hook precmd _deferred_init
 
 # Print the startup profile when ZSH_PROFILE is set (see top of file).
 [[ -n $ZSH_PROFILE ]] && zprof
+# ─────────────────────────────────────────────────────────────────────────────
+# Machine-local overrides (NOT tracked in dotfiles)
+# Per-machine / per-OS shell config lives in ~/.config/zsh/local.d/*.zsh, sourced
+# last so it wins over anything above. Shell analogue of ~/.ssh/config.d/*.conf:
+# the dir isn't in the repo, so these survive `git pull`/`reset` across machines.
+# (N) = null_glob, so it's a no-op when the dir is empty/absent — no error.
+# ─────────────────────────────────────────────────────────────────────────────
+for _localrc in ${XDG_CONFIG_HOME:-$HOME/.config}/zsh/local.d/*.zsh(N); do
+  source "$_localrc"
+done
+unset _localrc
