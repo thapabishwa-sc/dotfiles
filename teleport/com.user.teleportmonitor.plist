@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.user.teleportmonitor</string>
+
+    <!-- One-shot: check, act if needed, exit. launchd does the scheduling,
+         which it is far better at than a sleep loop — it coalesces timers with
+         other system wakeups and fires promptly after the machine wakes. -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/bishwa/dotfiles/teleport/teleport_monitor.sh</string>
+        <string>--once</string>
+    </array>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!-- NO KeepAlive. This job is meant to exit; KeepAlive would relaunch it
+         the instant it finished, forever. -->
+
+    <!-- The timer. Expiry is not a file event, so something has to tick: a
+         cert quietly ages out with nothing on disk changing. 10 minutes
+         against the 10-minute renewal margin means a renewal starts with
+         0–10 minutes to spare, and it only takes seconds. -->
+    <key>StartInterval</key>
+    <integer>600</integer>
+
+    <!-- The watch. Anything that touches the profile — a login, a logout, an
+         rm -rf — wakes the job immediately instead of waiting for the tick.
+         This is what makes it feel instant rather than polled. -->
+    <key>WatchPaths</key>
+    <array>
+        <string>/Users/bishwa/.tsh</string>
+    </array>
+
+    <!-- A login rewrites several files under ~/.tsh, so one renewal can fire
+         the watch repeatedly. This floors relaunches at 60s; the cooldown in
+         the script's state file is the real defence. -->
+    <key>ThrottleInterval</key>
+    <integer>60</integer>
+
+    <!-- launchd hands a job a near-empty environment: no PATH to speak of, so
+         `tsh` would not resolve. Homebrew first, since that is where tsh lives
+         on Apple silicon. -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <key>TELEPORT_PROXY</key>
+        <string>t.stellarcyber.cloud</string>
+        <key>TELEPORT_USER</key>
+        <string>bthapa</string>
+
+        <!-- How the renewal happens.
+             headless — the daemon runs tlogin.exp itself: no window, password
+                        from the keychain, you just tap. Set deliberately
+                        without having verified that macOS raises Touch ID for
+                        a process with no controlling terminal; if it does not,
+                        this degrades safely — three failed attempts trigger
+                        the backoff and a "run tlogin by hand" banner, so the
+                        worst case is notify-with-a-delay, not a silent stall.
+                        ~/dotfiles/teleport/headless-test.sh settles it.
+             notify   — banner only, you run `tlogin`.
+             terminal — opens a terminal window; certain to work, visible. -->
+        <key>TELEPORT_RENEW_MODE</key>
+        <string>headless</string>
+
+        <!-- Required in headless mode. Without it tsh offers "WEBAUTHN and
+             OTP" and also waits on a typed code that will never arrive, so
+             even a working biometric prompt would stall to the timeout. -->
+        <key>TLOGIN_MFA_MODE</key>
+        <string>platform</string>
+    </dict>
+
+    <!-- Deliberately NOT setting TELEPORT_IDENTITY_FILE here: it is what makes
+         tsh authenticate with an expired file and fail to log in at all. Note
+         this PATH has no coreutils gnubin, so the tools here are the BSD ones
+         — the monitor avoids anything whose flags differ between the two. -->
+
+    <key>StandardOutPath</key>
+    <string>/Users/bishwa/Library/Logs/teleport-monitor.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/bishwa/Library/Logs/teleport-monitor.log</string>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/bishwa</string>
+</dict>
+</plist>

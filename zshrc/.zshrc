@@ -249,3 +249,18 @@ for _localrc in ${XDG_CONFIG_HOME:-$HOME/.config}/zsh/local.d/*.zsh(N); do
   source "$_localrc"
 done
 unset _localrc
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Teleport
+# TELEPORT_IDENTITY_FILE is deliberately NOT exported. Pointing tsh at an
+# identity file makes it authenticate WITH that file, so once the file expires
+# `tsh login` fails with "context deadline exceeded" — unable to log in because
+# it isn't logged in. Profile login (~/.tsh) has no such trap, and it's what
+# `tsh kube login` and kubectl actually read; an --out identity file does not
+# create a profile, which is why kube login kept asking for a password.
+# PROXY/USER stay: without them tsh falls back to the OS username ("bishwa")
+# and complains "No proxy address specified".
+# ─────────────────────────────────────────────────────────────────────────────
+export TELEPORT_PROXY=t.stellarcyber.cloud
+export TELEPORT_USER=bthapa
+alias tlogin="$HOME/dotfiles/teleport/tlogin.exp"   # keychain password + Touch ID

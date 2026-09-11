@@ -1,0 +1,224 @@
+#!/usr/bin/expect -f
+#
+# tlogin.exp — answer `tsh login`'s password prompt from the macOS keychain,
+# then step aside so the Touch ID tap stays a human action.
+#
+# Why expect at all: Teleport refuses a piped password —
+#   "cannot perform password login without a terminal / underlying reader is
+#    not a terminal"
+# — because it opens the tty directly instead of reading stdin. A pipe can't
+# satisfy that; a pty can, and spawn gives us one.
+#
+# MFA is NOT automated here. tsh still demands the WebAuthn tap and macOS
+# raises the biometric dialog itself, so the second factor remains physical.
+#
+# One-time keychain setup (-T grants /usr/bin/security unattended read access,
+# which is what lets the launchd monitor use this without a GUI prompt):
+#   security add-generic-password -U -a bthapa -s teleport-stellarcyber \
+#           -T /usr/bin/security -w
+#
+# Exit codes: 0 success | 2 keychain problem | 3 tsh failed | 4 timed out
+#
+# Every setting below can be overridden by an env var, which is what makes this
+# testable against a stub tsh without touching the real cluster.
+
+set PROXY         [expr {[info exists env(TLOGIN_PROXY)]    ? $env(TLOGIN_PROXY)    : "t.stellarcyber.cloud"}]
+set USERNAME      [expr {[info exists env(TLOGIN_USER)]     ? $env(TLOGIN_USER)     : "bthapa"}]
+set KC_ACCOUNT    [expr {[info exists env(TLOGIN_KC_ACCOUNT)] ? $env(TLOGIN_KC_ACCOUNT) : "bthapa"}]
+set KC_SERVICE    [expr {[info exists env(TLOGIN_KC_SERVICE)] ? $env(TLOGIN_KC_SERVICE) : "teleport-stellarcyber"}]
+set SECURITY      [expr {[info exists env(TLOGIN_SECURITY)] ? $env(TLOGIN_SECURITY) : "/usr/bin/security"}]
+set TSH           [expr {[info exists env(TLOGIN_TSH)]      ? $env(TLOGIN_TSH)      : "tsh"}]
+set PROMPT_TIMEOUT 90
+set MFA_TIMEOUT    120
+
+# TLOGIN_DEBUG=1 turns on expect's own trace and unmutes the login phase, which
+# is how you find out what tsh actually printed. NOTE: exp_internal logs SENT
+# data too, so the trace is muted around the password write below — otherwise
+# the secret would land in whatever you piped the trace into.
+set DEBUG [expr {[info exists env(TLOGIN_DEBUG)] ? 1 : 0}]
+if {$DEBUG} { exp_internal 1 }
+
+# ── 1. Password out of the keychain ─────────────────────────────────────────
+# log_user 0 around anything that could put the secret on stdout. `security -w`
+# prints the password and nothing else; exec strips the trailing newline.
+log_user 0
+# 2>/dev/null is not just noise control: without an explicit redirect Tcl exec
+# captures stderr through a temp file, which fails outright in environments
+# where the temp dir isn't writable ("couldn't create error file for command").
+if {[catch {exec $SECURITY find-generic-password -a $KC_ACCOUNT -s $KC_SERVICE -w 2>/dev/null} PASSWORD]} {
+    log_user 1
+    puts stderr "tlogin: no keychain item for account '$KC_ACCOUNT' service '$KC_SERVICE' (or access was denied)."
+    puts stderr "        Create it with:  security add-generic-password -U -a $KC_ACCOUNT -s $KC_SERVICE -T /usr/bin/security -w"
+    exit 2
+}
+log_user 1
+if {[string trim $PASSWORD] eq ""} {
+    puts stderr "tlogin: keychain returned an empty password for '$KC_ACCOUNT'."
+    exit 2
+}
+
+# ── 2. Break the profile lock ───────────────────────────────────────────────
+# The catch-22: if TELEPORT_IDENTITY_FILE is exported, tsh tries to
+# AUTHENTICATE WITH that file, and once it is expired the login itself fails
+# with "context deadline exceeded". The export has since been removed from
+# .zshrc, so this is belt-and-braces — it also covers inheriting the variable
+# from a shell that predates that change.
+foreach _v {TELEPORT_IDENTITY_FILE TELEPORT_IDENTITY} {
+    if {[info exists env($_v)]} { unset env($_v) }
+}
+
+# ── 3. Drive the login ──────────────────────────────────────────────────────
+# PATTERN CASE MATTERS HERE — do not "simplify" these back to (?i).
+#
+# expect optimises `expect -re` with a "gate keeper": it derives a glob from the
+# regex and pre-checks that before evaluating the regex proper. The gate check
+# does NOT honour an inline (?i), so `(?i)enter password for teleport user`
+# produced the gate glob `enter password for teleport user`, which never matched
+# tsh's actual `Enter password for Teleport user` — gate=no, regex never run,
+# silent 90s timeout. Visible only under TLOGIN_DEBUG=1:
+#
+#   does "Enter password for Teleport user bthapa:" match "(?i)enter password..."?
+#     Gate "enter password for teleport user"? gate=no
+#
+# That one bug produced every failure we chased: the "stall", the empty buffer,
+# and the apparent headless breakage. The prompt was always arriving on time.
+# Explicit character classes work under both the gate and the regex.
+#
+# The colour-probe machinery below (NO_COLOR, TERM=dumb, the OSC/CPR handlers)
+# is retained as cheap insurance, but it was never the cause: with the trace on,
+# tsh sent no probes at all and printed the prompt promptly. The stray
+# "command not found: 11" in the shell was cosmetic fallout, not the problem.
+set env(NO_COLOR) "1"
+
+# Is there a terminal to lend? No under launchd; yes when run by hand.
+set HAVE_TTY [expr {![catch {set _t [open /dev/tty r]}]}]
+if {$HAVE_TTY} { catch {close $_t} }
+
+# Answer the password prompt AT MOST ONCE. If tsh asks twice the first answer
+# was rejected, and replaying a wrong password at a login prompt is how
+# accounts get locked — so the second prompt is yours to type.
+set SENT 0
+
+# No --out. That flag puts tsh in identity-file mode: it writes a portable
+# credential for machine use and does NOT establish the ~/.tsh profile that
+# ordinary subcommands read — which is why `tsh kube login` still demanded a
+# password immediately after a successful refresh. A plain login creates the
+# profile, and kube/kubectl work off it afterwards.
+set _args [list login --proxy=$PROXY --user=$USERNAME]
+
+# Headless, tsh offering "WEBAUTHN and OTP" means it also waits on the terminal
+# for a typed code. TLOGIN_MFA_MODE=platform pins it to Touch ID alone so the
+# daemon path has exactly one way to succeed. Unset interactively, where being
+# offered the OTP fallback is useful.
+if {[info exists env(TLOGIN_MFA_MODE)] && $env(TLOGIN_MFA_MODE) ne ""} {
+    lappend _args --mfa-mode=$env(TLOGIN_MFA_MODE)
+}
+
+# TERM=dumb keeps colour detection from probing a terminal that cannot answer.
+# Insurance rather than the fix (see above); interactive runs keep their real
+# TERM, where the terminal answers for itself.
+if {!$HAVE_TTY} { set env(TERM) "dumb" }
+
+set timeout $PROMPT_TIMEOUT
+spawn -noecho {*}$TSH {*}$_args
+
+if {$HAVE_TTY} {
+    # -o watches the process's OUTPUT while the terminal is connected through.
+    # If the prompt wording ever drifts this simply doesn't fire and you type
+    # the password yourself — the login still works, it just isn't automatic.
+    interact {
+        -o
+        -re {[Ee]nter [Pp]assword for [Tt]eleport [Uu]ser} {
+            if {!$SENT} {
+                set SENT 1
+                exp_internal 0
+                exp_send -i $spawn_id -- "$PASSWORD\r"
+                if {$DEBUG} { exp_internal 1 }
+            }
+        }
+        -re {[Oo]verwrite\? \[y/N\]} {
+            exp_send -i $spawn_id -- "y\r"
+        }
+    }
+    set timeout $MFA_TIMEOUT
+    catch {expect eof}
+} else {
+    # Headless (launchd). The prompt arrives here perfectly normally — the long
+    # PROMPT_TIMEOUT is slack for a slow proxy, not for a stall.
+    log_user $DEBUG
+    expect {
+        # If something probes anyway, answer rather than risk a block. Never
+        # observed firing once the trace was on.
+        -re {\]11;\?} {
+            send -- "\x1b\]11;rgb:1e1e/1e1e/2e2e\x07"
+            exp_continue
+        }
+        -re {\[6n} {
+            send -- "\x1b\[1;1R"
+            exp_continue
+        }
+        -re {[Ee]nter [Pp]assword for [Tt]eleport [Uu]ser} {
+            set SENT 1
+            exp_internal 0
+            send -- "$PASSWORD\r"
+            if {$DEBUG} { exp_internal 1 }
+        }
+        -re {([Cc]annot connect|[Cc]onnection refused|[Nn]o such host|dial tcp)} {
+            log_user 1
+            puts stderr "\ntlogin: cannot reach $PROXY — leaving the old identity alone."
+            exit 3
+        }
+        timeout {
+            log_user 1
+            puts stderr "\ntlogin: timed out after ${PROMPT_TIMEOUT}s waiting for the password prompt."
+            # expect_out(buffer) is unset if nothing ever matched — reading it
+            # blind would turn this diagnostic into a Tcl error, in exactly the
+            # failure case the diagnostic exists for.
+            set _tail "(nothing)"
+            catch {set _tail $expect_out(buffer)}
+            puts stderr "tlogin: everything tsh said up to that point:"
+            puts stderr "----8<----\n$_tail\n---->8----"
+            exit 4
+        }
+        eof {
+            log_user 1
+            puts stderr "\ntlogin: tsh exited before asking for a password."
+            # Output is muted on this path, so without echoing the buffer there
+            # is nothing to diagnose from — and the commonest cause is benign:
+            # a still-valid session, where tsh has nothing to ask.
+            set _tail "(nothing)"
+            catch {set _tail $expect_out(buffer)}
+            puts stderr "tlogin: what tsh said:"
+            puts stderr "----8<----\n$_tail\n---->8----"
+            exit 3
+        }
+    }
+    log_user 1
+    # Once the identity file exists — i.e. every run after the first — tsh asks
+    # "Destination file(s) ... exist. Overwrite? [y/N]". Interactively you type
+    # the y; here nobody would, and the renewal would hang to MFA_TIMEOUT and
+    # fail on every single cycle. Overwriting is the whole point, so answer it.
+    set timeout $MFA_TIMEOUT
+    expect {
+        -re {[Oo]verwrite\? \[y/N\]} { send -- "y\r"; exp_continue }
+        eof {}
+        timeout {
+            puts stderr "tlogin: tsh stalled after the password (Touch ID unanswered?)."
+            exit 4
+        }
+    }
+}
+
+# ── 4. Touch ID ─────────────────────────────────────────────────────────────
+# Nothing to do here: the tap is a macOS system dialog, and the waits above
+# (interact, or expect eof) hold the process open while you answer it.
+
+catch {wait} _res
+set _code 0
+if {[llength $_res] >= 4 && [lindex $_res 2] == 0} { set _code [lindex $_res 3] }
+if {$_code != 0} {
+    puts stderr "tlogin: tsh login exited $_code — identity not refreshed."
+    exit 3
+}
+puts "tlogin: session refreshed for $USERNAME@$PROXY (profile in ~/.tsh)"
+exit 0
